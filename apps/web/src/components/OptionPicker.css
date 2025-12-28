@@ -1,0 +1,34 @@
+.option-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.option-btn {
+  padding: 15px 20px;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  font-size: 1em;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.option-btn:hover:not(:disabled):not(.selected) {
+  border-color: #667eea;
+  background: #f0f4ff;
+}
+
+.option-btn.selected {
+  border-color: #667eea;
+  background: #667eea;
+  color: white;
+}
+
+.option-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+

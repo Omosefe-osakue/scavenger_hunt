@@ -1,0 +1,123 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Hunt {
+  id             String        @id @default(uuid())
+  code           String        @unique
+  shareSlug      String        @unique
+  giftedName     String
+  welcomeMessage String
+  status         HuntStatus    @default(draft)
+  createdAt      DateTime      @default(now())
+  publishedAt    DateTime?
+  postIts        PostIt[]
+  submissions    Submission[]
+  progress       HuntProgress?
+
+  @@index([code])
+  @@index([shareSlug])
+}
+
+enum HuntStatus {
+  draft
+  published
+  completed
+}
+
+model PostIt {
+  id            String     @id @default(uuid())
+  huntId        String
+  position      Int
+  title         String?
+  prompt        String
+  color         String     @default("yellow")
+  type          PostItType
+  correctAnswer String?
+  requiresPhoto Boolean    @default(false)
+  allowsSkip    Boolean    @default(false)
+  nextPostItId  String?
+  createdAt     DateTime   @default(now())
+
+  hunt               Hunt           @relation(fields: [huntId], references: [id], onDelete: Cascade)
+  nextPostIt         PostIt?        @relation("PostItNext", fields: [nextPostItId], references: [id])
+  previousPostIts    PostIt[]       @relation("PostItNext")
+  options            PostItOption[]
+  submissions        Submission[]
+  nextForOptions     PostItOption[] @relation("PostItOptionNext")
+  currentForProgress HuntProgress[] @relation("HuntProgressCurrent")
+
+  @@index([huntId, position])
+  @@index([nextPostItId])
+}
+
+enum PostItType {
+  riddle
+  photo
+  mixed
+  choice
+}
+
+model PostItOption {
+  id           String @id @default(uuid())
+  postItId     String
+  label        String
+  value        String
+  nextPostItId String
+
+  postIt     PostIt @relation(fields: [postItId], references: [id], onDelete: Cascade)
+  nextPostIt PostIt @relation("PostItOptionNext", fields: [nextPostItId], references: [id])
+
+  @@index([postItId])
+  @@index([nextPostItId])
+}
+
+model Submission {
+  id                  String   @id @default(uuid())
+  huntId              String
+  postItId            String
+  textAnswer          String?
+  selectedOptionValue String?
+  isCorrect           Boolean
+  wasSkipped          Boolean  @default(false)
+  createdAt           DateTime @default(now())
+
+  hunt   Hunt              @relation(fields: [huntId], references: [id], onDelete: Cascade)
+  postIt PostIt            @relation(fields: [postItId], references: [id], onDelete: Cascade)
+  photos SubmissionPhoto[]
+
+  @@index([huntId, postItId])
+  @@index([huntId])
+  @@index([postItId])
+}
+
+model SubmissionPhoto {
+  id           String   @id @default(uuid())
+  submissionId String
+  photoUrl     String
+  createdAt    DateTime @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+}
+
+model HuntProgress {
+  huntId          String    @id
+  currentPostItId String?
+  completedAt     DateTime?
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  hunt          Hunt    @relation(fields: [huntId], references: [id], onDelete: Cascade)
+  currentPostIt PostIt? @relation("HuntProgressCurrent", fields: [currentPostItId], references: [id])
+
+  @@index([currentPostItId])
+}

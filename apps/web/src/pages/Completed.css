@@ -1,0 +1,28 @@
+.completed-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.completed-header h1 {
+  font-size: 2.5em;
+  margin-bottom: 15px;
+  color: #667eea;
+}
+
+.completed-header p {
+  font-size: 1.2em;
+  color: #666;
+}
+
+.completed-actions {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 40px;
+}
+
+.completion-stats {
+  text-align: center;
+  font-size: 1.1em;
+  color: #666;
+}
+

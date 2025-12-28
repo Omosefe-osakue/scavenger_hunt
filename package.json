@@ -1,0 +1,21 @@
+{
+  "name": "scavenger-hunt",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"pnpm dev:api\" \"pnpm dev:web\"",
+    "dev:api": "cd apps/api && pnpm dev",
+    "dev:web": "cd apps/web && pnpm dev",
+    "build": "pnpm build:api && pnpm build:web",
+    "build:api": "cd apps/api && pnpm build",
+    "build:web": "cd apps/web && pnpm build",
+    "db:generate": "cd apps/api && pnpm prisma generate",
+    "db:migrate": "cd apps/api && pnpm prisma migrate dev",
+    "db:studio": "cd apps/api && pnpm prisma studio",
+    "install:all": "pnpm install && cd apps/api && pnpm install && cd ../web && pnpm install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
+
