@@ -12,7 +12,7 @@ export const Builder: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [editingPostIt, setEditingPostIt] = useState<PostIt | null>(null);
   const [showPostItForm, setShowPostItForm] = useState(false);
-
+  
   useEffect(() => {
     if (huntId) {
       loadHunt();
@@ -85,6 +85,14 @@ export const Builder: React.FC = () => {
       alert(err.message || 'Failed to publish hunt');
     }
   };
+
+  // const updateHints = (index: number, value: string) => {
+  //   setHints((prev) => {
+  //     const next = [...prev];
+  //     next[index] = value;
+  //     return next;
+  //   });
+  // };
 
   if (loading) return <div className="container">Loading...</div>;
   if (error) return <div className="container">Error: {error}</div>;
@@ -174,11 +182,36 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
     correctAnswer: postIt?.correctAnswer || '',
     requiresPhoto: postIt?.requiresPhoto || false,
     allowsSkip: postIt?.allowsSkip || false,
+    hints: postIt?.hints || ['', '', ''],
+    unlockAt: postIt?.unlockAt || null,
   });
+  const handleUnlockAtChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    // store as ISO string for API
+    setFormData((prev) => ({ ...prev, unlockAt: v ? new Date(v).toISOString() : null }));
+  };
+
+
+  const updateHint = (index: number, value: string) => {
+    setFormData((prev) => {
+      const prevHints = Array.isArray((prev as any).hints) ? ((prev as any).hints as string[]) : ['', '', ''];
+      const nextHints = [...prevHints];
+      nextHints[index] = value;
+      return { ...prev, hints: nextHints };
+    });
+  };
+  
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+  
+    const rawHints = Array.isArray(formData.hints) ? ((formData as any).hints as string[]) : [];
+    const cleanedHints = rawHints.map((h) => h.trim()).filter(Boolean);
+  
+    onSave({
+      ...formData,
+      hints: cleanedHints,
+    });
   };
 
   return (
@@ -229,15 +262,50 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
         </select>
       </div>
       {(formData.type === 'riddle' || formData.type === 'mixed') && (
-        <div className="form-group">
-          <label>Correct Answer:</label>
-          <input
-            type="text"
-            value={formData.correctAnswer || ''}
-            onChange={(e) => setFormData({ ...formData, correctAnswer: e.target.value })}
-          />
-        </div>
+        <>
+          <div className="form-group">
+            <label>Correct Answer:</label>
+            <input
+              type="text"
+              value={formData.correctAnswer || ''}
+              onChange={(e) => setFormData({ ...formData, correctAnswer: e.target.value })}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Hints (up to 3):</label>
+
+            <input
+              type="text"
+              value={Array.isArray(formData.hints) ? (formData.hints[0] || '') : ''}
+              onChange={(e) => updateHint(0, e.target.value)}
+              placeholder="Hint 1 (shown after 1st wrong attempt)"
+            />
+            <input
+              type="text"
+              value={Array.isArray(formData.hints) ? (formData.hints[1] || '') : ''}
+              onChange={(e) => updateHint(1, e.target.value)}
+              placeholder="Hint 2 (shown after 2nd wrong attempt)"
+            />
+            <input
+              type="text"
+              value={Array.isArray(formData.hints) ? (formData.hints[2] || '') : ''}
+              onChange={(e) => updateHint(2, e.target.value)}
+              placeholder="Hint 3 (shown after 3rd wrong attempt)"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Unlock at (optional):</label>
+            <input
+              type="datetime-local"
+              value={formData.unlockAt ? new Date(formData.unlockAt).toISOString().slice(0, 16) : ''}
+              onChange={handleUnlockAtChange}
+            />
+          </div>
+        </>
       )}
+
       <div className="form-group">
         <label>
           <input
