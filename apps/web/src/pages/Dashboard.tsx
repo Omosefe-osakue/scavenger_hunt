@@ -83,6 +83,7 @@ export const Dashboard: React.FC = () => {
     selectedOptionValue?: string;
     photoUrls?: string[];
     wasSkipped?: boolean;
+    bypassCode?: string;
   }) => {
     if (!huntId || !selectedPostIt) return;
 
@@ -94,9 +95,31 @@ export const Dashboard: React.FC = () => {
         if (result.huntCompleted) {
           setTimeout(() => navigate(`/complete/${huntId}`), 1500);
         }
+        return {code: 'OK'};
       }
+      const code = ('code' in result ? (result as any).code : undefined) ?? ('reason' in result ? (result as any).reason : undefined);
+
+      if ('hints' in result && (result as any).hints.length) return { hints: result.hints };
+      
+      if (code === 'TRY_AGAIN') return { code: 'TRY_AGAIN' };
+      if (code === 'TIME_LOCKED') return { code: 'TIME_LOCKED', unlockAt: (result as any).unlockAt ?? null };
+      throw new Error(result.message ?? 'Submission failed');
     } catch (err: any) {
-      throw err;
+      const data = err?.response?.data;
+
+      if (data?.hints?.length) {
+        return { hints: data.hints };
+      }
+      const code = data?.code ?? data?.reason;
+
+      if (code=== 'TRY_AGAIN') {
+        return { code: 'TRY_AGAIN' };
+      }
+
+      if (code === 'TIME_LOCKED') {
+        return { code: 'TIME_LOCKED', unlockAt: data.unlockAt ?? null };
+      }
+      throw new Error(data?.message ?? 'Submission failed');
     }
   };
 
