@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Hunt, PostIt, PostItOption } from '../types';
+import type { Hunt, PostIt } from '../types';
 import './Builder.css';
 
 export const Builder: React.FC = () => {
@@ -12,11 +12,12 @@ export const Builder: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [editingPostIt, setEditingPostIt] = useState<PostIt | null>(null);
   const [showPostItForm, setShowPostItForm] = useState(false);
-  
+
   useEffect(() => {
     if (huntId) {
       loadHunt();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [huntId]);
 
   const loadHunt = async () => {
@@ -43,7 +44,7 @@ export const Builder: React.FC = () => {
     try {
       await api.createPostIt(huntId, {
         ...data,
-        position: (hunt?.postIts?.length || 0),
+        position: hunt?.postIts?.length || 0,
       } as Partial<PostIt>);
       await loadHunt();
       setShowPostItForm(false);
@@ -86,14 +87,6 @@ export const Builder: React.FC = () => {
     }
   };
 
-  // const updateHints = (index: number, value: string) => {
-  //   setHints((prev) => {
-  //     const next = [...prev];
-  //     next[index] = value;
-  //     return next;
-  //   });
-  // };
-
   if (loading) return <div className="container">Loading...</div>;
   if (error) return <div className="container">Error: {error}</div>;
   if (!hunt) return <div className="container">Hunt not found</div>;
@@ -101,7 +94,14 @@ export const Builder: React.FC = () => {
   return (
     <div className="container">
       <div className="page-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            marginBottom: '10px',
+          }}
+        >
           <div>
             <h1>Build Your Hunt</h1>
             <p>For: {hunt.giftedName}</p>
@@ -130,10 +130,7 @@ export const Builder: React.FC = () => {
       </div>
 
       {showPostItForm && (
-        <PostItForm
-          onSave={(data) => handleCreatePostIt(data)}
-          onCancel={() => setShowPostItForm(false)}
-        />
+        <PostItForm onSave={(data) => handleCreatePostIt(data)} onCancel={() => setShowPostItForm(false)} />
       )}
 
       {editingPostIt && (
@@ -180,17 +177,21 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
     color: postIt?.color || 'yellow',
     type: postIt?.type || 'riddle',
     correctAnswer: postIt?.correctAnswer || '',
+
     requiresPhoto: postIt?.requiresPhoto || false,
+
     allowsSkip: postIt?.allowsSkip || false,
     hints: postIt?.hints || ['', '', ''],
     unlockAt: postIt?.unlockAt || null,
+    photoRule: postIt?.photoRule ?? (postIt?.requiresPhoto ? 'required' : 'none'),
+    photoMin: postIt?.photoMin ?? 1,
+    photoMax: (postIt as any)?.photoMax ?? 3,
   });
+
   const handleUnlockAtChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
-    // store as ISO string for API
     setFormData((prev) => ({ ...prev, unlockAt: v ? new Date(v).toISOString() : null }));
   };
-
 
   const updateHint = (index: number, value: string) => {
     setFormData((prev) => {
@@ -200,23 +201,30 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
       return { ...prev, hints: nextHints };
     });
   };
-  
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-  
+
     const rawHints = Array.isArray(formData.hints) ? ((formData as any).hints as string[]) : [];
     const cleanedHints = rawHints.map((h) => h.trim()).filter(Boolean);
-  
+
+    const rule = (formData as any).photoRule ?? 'none';
+    const requiresPhoto = rule === 'required' || formData.type === 'photo';
+
     onSave({
       ...formData,
       hints: cleanedHints,
+      requiresPhoto,
+      photoRule: rule,
+      photoMin: rule === 'required' || formData.type === 'photo' ? Number((formData as any).photoMin ?? 1) : undefined,
+      photoMax: rule === 'none' ? 0 : Number((formData as any).photoMax ?? 3),
     });
   };
 
   return (
     <form onSubmit={handleSubmit} className="postit-form">
       <h3>{postIt ? 'Edit Post-it' : 'New Post-it'}</h3>
+
       <div className="form-group">
         <label>Title (optional):</label>
         <input
@@ -225,6 +233,7 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
           onChange={(e) => setFormData({ ...formData, title: e.target.value })}
         />
       </div>
+
       <div className="form-group">
         <label>Prompt:</label>
         <textarea
@@ -234,12 +243,10 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
           rows={3}
         />
       </div>
+
       <div className="form-group">
         <label>Color:</label>
-        <select
-          value={formData.color}
-          onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-        >
+        <select value={formData.color} onChange={(e) => setFormData({ ...formData, color: e.target.value })}>
           <option value="yellow">Yellow</option>
           <option value="red">Red</option>
           <option value="blue">Blue</option>
@@ -249,11 +256,28 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
           <option value="purple">Purple</option>
         </select>
       </div>
+
       <div className="form-group">
         <label>Type:</label>
         <select
           value={formData.type}
-          onChange={(e) => setFormData({ ...formData, type: e.target.value as PostIt['type'] })}
+          onChange={(e) => {
+            const nextType = e.target.value as PostIt['type'];
+            setFormData((prev) => {
+              // if type is photo, force required photo rule
+              if (nextType === 'photo') {
+                return {
+                  ...prev,
+                  type: nextType,
+                  photoRule: 'required',
+                  requiresPhoto: true,
+                  photoMin: prev.photoMin ?? 1,
+                  photoMax: (prev as any).photoMax ?? 3,
+                };
+              }
+              return { ...prev, type: nextType };
+            });
+          }}
         >
           <option value="riddle">Riddle (text answer)</option>
           <option value="photo">Photo (photo required)</option>
@@ -261,6 +285,7 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
           <option value="choice">Choice (branching)</option>
         </select>
       </div>
+
       {(formData.type === 'riddle' || formData.type === 'mixed') && (
         <>
           <div className="form-group">
@@ -274,25 +299,28 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
 
           <div className="form-group">
             <label>Hints (up to 3):</label>
-
             <input
               type="text"
-              value={Array.isArray(formData.hints) ? (formData.hints[0] || '') : ''}
+              value={Array.isArray(formData.hints) ? formData.hints[0] || '' : ''}
               onChange={(e) => updateHint(0, e.target.value)}
               placeholder="Hint 1 (shown after 1st wrong attempt)"
             />
             <input
               type="text"
-              value={Array.isArray(formData.hints) ? (formData.hints[1] || '') : ''}
+              value={Array.isArray(formData.hints) ? formData.hints[1] || '' : ''}
               onChange={(e) => updateHint(1, e.target.value)}
               placeholder="Hint 2 (shown after 2nd wrong attempt)"
             />
             <input
               type="text"
-              value={Array.isArray(formData.hints) ? (formData.hints[2] || '') : ''}
+              value={Array.isArray(formData.hints) ? formData.hints[2] || '' : ''}
               onChange={(e) => updateHint(2, e.target.value)}
               placeholder="Hint 3 (shown after 3rd wrong attempt)"
             />
+
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>
+              Tip: leave blank if you don’t want hints.
+            </div>
           </div>
 
           <div className="form-group">
@@ -307,15 +335,57 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
       )}
 
       <div className="form-group">
-        <label>
+        <label>Photo requirement:</label>
+
+        <select
+          value={((formData as any).photoRule ?? 'none') as any}
+          onChange={(e) => {
+            const nextRule = e.target.value as any;
+
+            setFormData((prev) => ({
+              ...prev,
+              photoRule: nextRule,
+              requiresPhoto: nextRule === 'required',
+              photoMin: nextRule === 'required' ? Number((prev as any).photoMin ?? 1) : (prev as any).photoMin,
+              photoMax: nextRule === 'none' ? 0 : Number((prev as any).photoMax ?? 3),
+            }));
+          }}
+          disabled={formData.type === 'photo'} // type photo forces required
+        >
+          <option value="none">No photo</option>
+          <option value="optional">Optional photo</option>
+          <option value="required">Required photo</option>
+        </select>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
           <input
-            type="checkbox"
-            checked={formData.requiresPhoto || false}
-            onChange={(e) => setFormData({ ...formData, requiresPhoto: e.target.checked })}
+            type="number"
+            min={1}
+            max={5}
+            value={Number((formData as any).photoMin ?? 1)}
+            disabled={((formData as any).photoRule ?? 'none') !== 'required' && formData.type !== 'photo'}
+            onChange={(e) => setFormData((prev) => ({ ...prev, photoMin: Number(e.target.value) }))}
+            placeholder="Min photos"
           />
-          Requires Photo
-        </label>
+
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={Number((formData as any).photoMax ?? 3)}
+            disabled={((formData as any).photoRule ?? 'none') === 'none'}
+            onChange={(e) => setFormData((prev) => ({ ...prev, photoMax: Number(e.target.value) }))}
+            placeholder="Max photos"
+          />
+        </div>
+
+        {(((formData as any).photoRule ?? 'none') === 'required' || formData.type === 'photo') && (
+          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>
+            This card will require at least {Number((formData as any).photoMin ?? 1)} photo(s) before it can be submitted.
+          </div>
+        )}
       </div>
+
       <div className="form-group">
         <label>
           <input
@@ -326,6 +396,7 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
           Allows Skip
         </label>
       </div>
+
       <div className="form-actions">
         <button type="button" className="btn-secondary" onClick={onCancel}>
           Cancel
@@ -337,4 +408,3 @@ const PostItForm: React.FC<PostItFormProps> = ({ postIt, onSave, onCancel }) => 
     </form>
   );
 };
-

@@ -1,5 +1,13 @@
 export type HuntStatus = 'draft' | 'published' | 'completed';
-export type PostItType = 'riddle' | 'photo' | 'mixed' | 'choice';
+export type PostItType = 'text' | 'photo' | 'choice';
+
+export interface Option {
+  id: string;
+  value: string;
+  label: string;
+  isCorrect?: boolean;
+  nextPostItId?: string;
+}
 
 export interface Hunt {
   id: string;
@@ -19,23 +27,23 @@ export interface PostIt {
   position: number;
   title?: string;
   prompt: string;
-  color: string;
   type: PostItType;
-  correctAnswer?: string;
-  requiresPhoto: boolean;
-  allowsSkip: boolean;
-  nextPostItId?: string;
-  createdAt: string;
+  color: string;
+  answer?: string;
   options?: PostItOption[];
+  correctAnswer?: string | string[];
+  hints?: string[];
+  photoMin?: number;
+  photoMax?: number;
+  allowsSkip?: boolean;
+  requiresPhoto?: boolean;
+  isComplete?: boolean;
+  completedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-export interface PostItOption {
-  id: string;
-  postItId: string;
-  label: string;
-  value: string;
-  nextPostItId: string;
-}
+export type PostItOption = Option;
 
 export interface HuntState {
   huntId: string;

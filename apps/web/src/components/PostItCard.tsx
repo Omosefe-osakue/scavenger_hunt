@@ -10,6 +10,8 @@ interface PostItCardProps {
   type: PostItType;
   locked: boolean;
   completed: boolean;
+  failedAttempts?: number;
+  hints?: string[];
   onClick: () => void;
 }
 
@@ -17,29 +19,58 @@ export const PostItCard: React.FC<PostItCardProps> = ({
   position,
   title,
   color,
+  type,
   locked,
   completed,
+  failedAttempts = 0,
+  hints = [],
   onClick,
 }) => {
   const colorClass = `postit-${color}`;
+  const showHint = failedAttempts > 0 && hints.length > 0 && !completed;
+  const hintToShow = hints[Math.min(failedAttempts - 1, hints.length - 1)];
   
   return (
-    <div
-      className={`postit-card ${colorClass} ${locked ? 'locked' : ''} ${completed ? 'completed' : ''}`}
-      onClick={locked ? undefined : onClick}
-    >
-      {locked && (
-        <div className="lock-overlay">
-          <span className="lock-icon">🔒</span>
+    <div className="postit-container">
+      <div
+        className={`postit-card ${colorClass} ${locked ? 'locked' : ''} ${
+          completed ? 'completed' : ''
+        } ${showHint ? 'has-hint' : ''}`}
+        onClick={!locked && !completed ? onClick : undefined}
+      >
+        {locked && !completed && (
+          <div className="postit-overlay lock-overlay">
+            <span className="postit-icon">🔒</span>
+          </div>
+        )}
+        {completed && (
+          <div className="postit-overlay check-overlay">
+            <span className="postit-icon">✓</span>
+          </div>
+        )}
+        <div className="postit-header">
+          <span className="postit-number">#{position}</span>
+          <span className="postit-type">{type}</span>
         </div>
-      )}
-      {completed && (
-        <div className="check-overlay">
-          <span className="check-icon">✓</span>
-        </div>
-      )}
-      <div className="postit-number">#{position}</div>
-      {title && <div className="postit-title">{title}</div>}
+        {title && <div className="postit-title">{title}</div>}
+        
+        {showHint && (
+          <div className="postit-hint">
+            <div className="hint-indicator">
+              <span className="hint-icon">💡</span>
+              <span className="hint-text">Hint: {hintToShow}</span>
+            </div>
+          </div>
+        )}
+        
+        {failedAttempts > 0 && !completed && (
+          <div className="attempts-indicator">
+            {Array(failedAttempts).fill(0).map((_, i) => (
+              <span key={i} className="attempt-dot" />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
