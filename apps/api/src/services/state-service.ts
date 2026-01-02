@@ -20,9 +20,10 @@ export async function getHuntState(huntId: string) {
   const currentPostItId = hunt.progress?.currentPostItId;
   const completedPostItIds = new Set(hunt.submissions.map((s) => s.postItId));
 
-  const postIts = hunt.postIts.map((postIt) => {
+  const postIts = hunt.postIts.map((postIt: any) => {
     const completed = completedPostItIds.has(postIt.id);
-    const locked = !completed && postIt.id !== currentPostItId;
+    const isTimeLocked = postIt.unlockAt && new Date(postIt.unlockAt) > new Date();
+    const locked = !completed && (postIt.id !== currentPostItId || isTimeLocked);
 
     return {
       id: postIt.id,
@@ -35,8 +36,10 @@ export async function getHuntState(huntId: string) {
       requiresPhoto: postIt.requiresPhoto,
       allowsSkip: postIt.allowsSkip,
       options: postIt.options,
+      unlockAt: postIt.unlockAt,
       locked,
       completed,
+      isTimeLocked,
     };
   });
 

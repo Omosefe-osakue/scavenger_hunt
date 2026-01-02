@@ -27,6 +27,8 @@ interface PostIt {
   requiresPhoto: boolean;
   allowsSkip: boolean;
   nextPostItId: string | null;
+  hints: string[]; // Array of up to 3 hints
+  unlockAt: Date | null; // When this post-it becomes accessible (time-sensitive)
   createdAt: Date;
 }
 
@@ -42,10 +44,12 @@ interface Submission {
   id: string;
   huntId: string;
   postItId: string;
-  textAnswer: string | null;
-  selectedOptionValue: string | null;
+  textAnswer: string | undefined | null;
+  selectedOptionValue: string | undefined | null;
   isCorrect: boolean;
   wasSkipped: boolean;
+  hintAttempts: number; // Track how many hints have been shown
+  bypassCode: string | null;
   createdAt: Date;
 }
 
@@ -113,6 +117,8 @@ function initializeDummyData() {
     requiresPhoto: false,
     allowsSkip: false,
     nextPostItId: postIt2,
+    hints: ['It\'s a single digit number', 'It\'s between 3 and 5', 'Think of basic addition'],
+    unlockAt: null,
     createdAt: new Date(),
   });
 
@@ -128,6 +134,8 @@ function initializeDummyData() {
     requiresPhoto: true,
     allowsSkip: true,
     nextPostItId: postIt3,
+    hints: [],
+    unlockAt: null,
     createdAt: new Date(),
   });
 
@@ -143,6 +151,8 @@ function initializeDummyData() {
     requiresPhoto: false,
     allowsSkip: false,
     nextPostItId: null,
+    hints: [],
+    unlockAt: null,
     createdAt: new Date(),
   });
 
@@ -208,7 +218,8 @@ const mockClient = {
     findFirst: async (args?: any) => {
       return Array.from(hunts.values())[0] || null;
     },
-    create: async (args: { data: Omit<Hunt, 'id' | 'createdAt'> & { id?: string; createdAt?: Date } }) => {
+    create: async (args: { 
+      data: Omit<Hunt, 'id' | 'createdAt'> & { id?: string; createdAt?: Date } }) => {
       const hunt: Hunt = {
         id: args.data.id || uuid(),
         createdAt: args.data.createdAt || new Date(),
@@ -237,15 +248,24 @@ const mockClient = {
       return postIts.get(args.where.id) || null;
     },
     findFirst: async (args: { where: any; orderBy?: any }) => {
-      let results = Array.from(postIts.values()).filter((p) => {
-        if (args.where.huntId && p.huntId !== args.where.huntId) return false;
-        if (args.where.position?.gt && p.position <= args.where.position.gt) return false;
-        if (args.where.position?.lt && p.position >= args.where.position.lt) return false;
-        return true;
-      });
+      let results = Array.from(postIts.values());
+    
+      if (args.where?.huntId) {
+        results = results.filter((p) => p.huntId === args.where.huntId);
+      }
+      if (args.where?.position?.gt !== undefined) {
+        results = results.filter((p) => p.position > args.where.position.gt);
+      }
+      if (args.where?.id) {
+        results = results.filter((p) => p.id === args.where.id);
+      }
+    
       if (args.orderBy?.position === 'asc') {
         results.sort((a, b) => a.position - b.position);
+      } else if (args.orderBy?.position === 'desc') {
+        results.sort((a, b) => b.position - a.position);
       }
+    
       return results[0] || null;
     },
     findMany: async (args?: { where?: any; orderBy?: any; include?: any }) => {
@@ -258,12 +278,26 @@ const mockClient = {
       }
       return results;
     },
-    create: async (args: { data: Omit<PostIt, 'id' | 'createdAt'> & { id?: string; createdAt?: Date } }) => {
+    create: async (args: {
+      data: Omit<PostIt, 'id' | 'createdAt' | 'hints' | 'unlockAt'> & {
+        id?: string;
+        createdAt?: Date;
+        hints?: string[];
+        unlockAt?: Date | string | null;
+      };
+    }) => {
       const postIt: PostIt = {
+        ...args.data,
         id: args.data.id || uuid(),
         createdAt: args.data.createdAt || new Date(),
-        ...args.data,
+        hints: args.data.hints ?? [],
+        unlockAt: args.data.unlockAt
+          ? typeof args.data.unlockAt === 'string'
+            ? new Date(args.data.unlockAt)
+            : args.data.unlockAt
+          : null,
       };
+    
       postIts.set(postIt.id, postIt);
       return postIt;
     },
@@ -320,13 +354,23 @@ const mockClient = {
     findUnique: async (args: { where: { id: string } }) => {
       return submissions.get(args.where.id) || null;
     },
-    findFirst: async (args: { where: any }) => {
-      return Array.from(submissions.values()).find((s) => {
+    findFirst: async (args: { where: any; orderBy?: any }) => {
+      let results = Array.from(submissions.values()).filter((s) => {
         if (args.where.huntId && s.huntId !== args.where.huntId) return false;
         if (args.where.postItId && s.postItId !== args.where.postItId) return false;
+        if (typeof args.where.isCorrect === 'boolean' && s.isCorrect !== args.where.isCorrect) return false;
         return true;
-      }) || null;
+      });
+    
+      if (args.orderBy?.createdAt === 'desc') {
+        results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      } else if (args.orderBy?.createdAt === 'asc') {
+        results.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      }
+    
+      return results[0] || null;
     },
+    
     findMany: async (args?: { where?: any; orderBy?: any; include?: any }) => {
       let results = Array.from(submissions.values());
       if (args?.where?.huntId) {
@@ -340,16 +384,42 @@ const mockClient = {
       }
       return results;
     },
-    create: async (args: { data: Omit<Submission, 'id' | 'createdAt'> & { id?: string; createdAt?: Date; photos?: { create: Array<{ photoUrl: string }> } } }) => {
+    delete: async (args: { where: { id: string } }) => {
+      const existing = submissions.get(args.where.id);
+      if (!existing) throw new Error('Submission not found');
+      submissions.delete(args.where.id);
+      for (const [photoId, photo] of submissionPhotos.entries()) {
+        if (photo.submissionId === args.where.id) {
+          submissionPhotos.delete(photoId);
+        }
+      }
+    
+      return existing;
+    },
+    update: async (args: { where: { id: string }; data: Partial<Submission> }) => {
+      const existing = submissions.get(args.where.id);
+      if (!existing) throw new Error('Submission not found');
+    
+      const updated: Submission = {
+        ...existing,
+        ...args.data,
+      };
+    
+      submissions.set(updated.id, updated);
+      return updated;
+    },
+    create: async (args: { data: Partial<Submission> & { huntId: string; postItId: string } & { photos?: { create: Array<{ photoUrl: string }> } } }) => {
       const submission: Submission = {
         id: args.data.id || uuid(),
+        huntId: args.data.huntId!,
+        postItId: args.data.postItId!,
+        textAnswer: args.data.textAnswer ?? null,
+        selectedOptionValue: args.data.selectedOptionValue ?? null,
+        isCorrect: args.data.isCorrect ?? false,
+        wasSkipped: args.data.wasSkipped ?? false,
+        hintAttempts: args.data.hintAttempts ?? 0,
+        bypassCode: args.data.bypassCode ?? null,
         createdAt: args.data.createdAt || new Date(),
-        textAnswer: args.data.textAnswer || null,
-        selectedOptionValue: args.data.selectedOptionValue || null,
-        isCorrect: args.data.isCorrect,
-        wasSkipped: args.data.wasSkipped || false,
-        huntId: args.data.huntId,
-        postItId: args.data.postItId,
       };
       submissions.set(submission.id, submission);
 
@@ -382,12 +452,12 @@ const mockClient = {
     findUnique: async (args: { where: { huntId: string } }) => {
       return huntProgress.get(args.where.huntId) || null;
     },
-    create: async (args: { data: Omit<HuntProgress, 'updatedAt'> & { updatedAt?: Date } }) => {
+    create: async (args: { data: Partial<HuntProgress> & { huntId: string } }) => {
       const progress: HuntProgress = {
         huntId: args.data.huntId,
-        currentPostItId: args.data.currentPostItId || null,
-        completedAt: args.data.completedAt || null,
-        updatedAt: args.data.updatedAt || new Date(),
+        currentPostItId: args.data.currentPostItId ?? null,
+        completedAt: args.data.completedAt ?? null, // ✅ default null
+        updatedAt: args.data.updatedAt ?? new Date(),
       };
       huntProgress.set(progress.huntId, progress);
       return progress;

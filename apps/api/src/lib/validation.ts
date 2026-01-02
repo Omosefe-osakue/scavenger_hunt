@@ -35,6 +35,7 @@ export const submitPostItSchema = z.object({
   selectedOptionValue: z.string().optional(),
   photoUrls: z.array(z.string().url()).optional(),
   wasSkipped: z.boolean().default(false),
+  bypassCode: z.string().optional(), // For time-sensitive post-its
 });
 
 export const signUploadSchema = z.object({

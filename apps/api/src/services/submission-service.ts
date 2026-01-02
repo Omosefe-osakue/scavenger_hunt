@@ -8,6 +8,7 @@ export async function submitPostIt(
     selectedOptionValue?: string;
     photoUrls?: string[];
     wasSkipped?: boolean;
+    bypassCode?: string; // For time-sensitive post-its
   }
 ) {
   const hunt = await prisma.hunt.findUnique({
@@ -27,16 +28,35 @@ export async function submitPostIt(
   if (!postIt) throw new Error('Post-it not found');
   if (postIt.huntId !== huntId) throw new Error('Post-it does not belong to hunt');
 
+  // Check if post-it is time-locked
+  if (postIt.unlockAt && new Date(postIt.unlockAt) > new Date()) {
+    // Check bypass code
+    if (data.bypassCode !== 'safe') {
+      return {
+        ok: false,
+        reason: 'TIME_LOCKED',
+        unlockAt: postIt.unlockAt,
+      };
+    }
+  }
+
   // Check if post-it is unlocked
   if (hunt.progress?.currentPostItId !== postItId) {
     // Check if already completed
     const existingSubmission = await prisma.submission.findFirst({
-      where: { huntId, postItId },
+      where: { huntId, postItId, isCorrect: true },
     });
     if (!existingSubmission) {
       throw new Error('LOCKED');
     }
   }
+
+  // Get existing submission to track hint attempts
+  const existingSubmission = await prisma.submission.findFirst({
+    where: { huntId, postItId },
+    orderBy: { createdAt: 'desc' },
+  });
+  const hintAttempts = (existingSubmission?.hintAttempts || 0);
 
   // Validation
   if (data.wasSkipped) {
@@ -47,12 +67,14 @@ export async function submitPostIt(
     // Check text answer if required
     if (postIt.correctAnswer) {
       if (!data.textAnswer) {
-        throw new Error('WRONG_ANSWER');
+        // Return hint instead of error
+        return handleWrongAnswer(huntId, postItId, postIt, hintAttempts, null);
       }
       const normalizedAnswer = data.textAnswer.trim().toLowerCase();
       const normalizedCorrect = postIt.correctAnswer.trim().toLowerCase();
       if (normalizedAnswer !== normalizedCorrect) {
-        throw new Error('WRONG_ANSWER');
+        // Return hint instead of error
+        return handleWrongAnswer(huntId, postItId, postIt, hintAttempts, data.textAnswer);
       }
     }
 
@@ -68,7 +90,7 @@ export async function submitPostIt(
       if (!data.selectedOptionValue) {
         throw new Error('INVALID_OPTION');
       }
-      const option = postIt.options.find((opt) => opt.value === data.selectedOptionValue);
+      const option = postIt.options.find((opt: any) => opt.value === data.selectedOptionValue);
       if (!option) {
         throw new Error('INVALID_OPTION');
       }
@@ -77,6 +99,15 @@ export async function submitPostIt(
 
   const isCorrect = data.wasSkipped || (postIt.correctAnswer ? 
     data.textAnswer?.trim().toLowerCase() === postIt.correctAnswer.trim().toLowerCase() : true);
+
+  // Delete any existing incorrect submissions for this post-it
+  if (existingSubmission && !existingSubmission.isCorrect) {
+    try {
+      await prisma.submission.delete({ where: { id: existingSubmission.id } } as any);
+    } catch (e) {
+      // Ignore if delete fails
+    }
+  }
 
   // Create submission
   const submission = await prisma.submission.create({
@@ -87,6 +118,8 @@ export async function submitPostIt(
       selectedOptionValue: data.selectedOptionValue,
       isCorrect,
       wasSkipped: data.wasSkipped || false,
+      hintAttempts: 0, // Reset on correct answer
+      bypassCode: data.bypassCode || null,
       photos: data.photoUrls
         ? {
             create: data.photoUrls.map((url) => ({ photoUrl: url })),
@@ -99,7 +132,7 @@ export async function submitPostIt(
   let nextPostItId: string | null = null;
 
   if (postIt.type === 'choice' && data.selectedOptionValue) {
-    const option = postIt.options.find((opt) => opt.value === data.selectedOptionValue);
+    const option = postIt.options.find((opt: any) => opt.value === data.selectedOptionValue);
     if (option) {
       nextPostItId = option.nextPostItId;
     }
@@ -121,27 +154,55 @@ export async function submitPostIt(
 
   const huntCompleted = !nextPostItId;
 
-  // Update progress
+  // Update progress - THIS IS CRITICAL FOR UNLOCKING
   if (huntCompleted) {
     await prisma.hunt.update({
       where: { id: huntId },
       data: { status: 'completed' },
     });
-    await prisma.huntProgress.update({
+    // Ensure progress exists before updating
+    const existingProgress = await prisma.huntProgress.findUnique({
       where: { huntId },
-      data: {
-        currentPostItId: null,
-        completedAt: new Date(),
-      },
     });
+    if (existingProgress) {
+      await prisma.huntProgress.update({
+        where: { huntId },
+        data: {
+          currentPostItId: null,
+          completedAt: new Date(),
+        },
+      });
+    } else {
+      await prisma.huntProgress.create({
+        data: {
+          huntId,
+          currentPostItId: null,
+          completedAt: new Date(),
+        },
+      });
+    }
   } else {
-    await prisma.huntProgress.update({
+    // Update progress to unlock next post-it
+    // Ensure progress exists before updating
+    const existingProgress = await prisma.huntProgress.findUnique({
       where: { huntId },
-      data: {
-        currentPostItId: nextPostItId,
-        updatedAt: new Date(),
-      },
     });
+    if (existingProgress) {
+      await prisma.huntProgress.update({
+        where: { huntId },
+        data: {
+          currentPostItId: nextPostItId,
+          updatedAt: new Date(),
+        },
+      });
+    } else {
+      await prisma.huntProgress.create({
+        data: {
+          huntId,
+          currentPostItId: nextPostItId,
+        },
+      });
+    }
   }
 
   return {
@@ -153,3 +214,63 @@ export async function submitPostIt(
   };
 }
 
+async function handleWrongAnswer(
+  huntId: string,
+  postItId: string,
+  postIt: any,
+  currentHintAttempts: number,
+  textAnswer: string | null
+) {
+  const hints = postIt.hints || [];
+  const newHintAttempts = currentHintAttempts + 1;
+  const hintsToShow = hints.slice(0, Math.min(newHintAttempts, hints.length));
+  const allHintsShown = newHintAttempts >= hints.length;
+
+  if (allHintsShown) {
+    // All hints shown, prompt to try again
+    return {
+      ok: false,
+      reason: 'TRY_AGAIN',
+      hints: hintsToShow,
+      hintAttempts: newHintAttempts,
+      allHintsShown: true,
+    };
+  }
+
+  // Create or update submission with hint attempt
+  const existingSubmission = await prisma.submission.findFirst({
+    where: { huntId, postItId },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (existingSubmission && !existingSubmission.isCorrect) {
+    // Update existing submission
+    await prisma.submission.update({
+      where: { id: existingSubmission.id },
+      data: {
+        textAnswer: textAnswer,
+        hintAttempts: newHintAttempts,
+      },
+    } as any);
+  } else {
+    // Create new submission
+    await prisma.submission.create({
+      data: {
+        huntId,
+        postItId,
+        textAnswer: textAnswer,
+        isCorrect: false,
+        wasSkipped: false,
+        hintAttempts: newHintAttempts,
+      },
+    });
+  }
+
+  return {
+    ok: false,
+    reason: 'WRONG_ANSWER',
+    hints: hintsToShow,
+    hintAttempts: newHintAttempts,
+    allHintsShown: false,
+  };
+}
